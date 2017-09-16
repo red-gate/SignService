@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
@@ -7,6 +8,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Clients.ActiveDirectory;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Http;
+using Newtonsoft.Json.Linq;
 
 namespace SignService.Utils
 {
@@ -22,20 +25,44 @@ namespace SignService.Utils
         string validatedToken;
         private readonly Settings settings;
     
-        public KeyVaultService(IOptionsSnapshot<Settings> settings, IOptionsSnapshot<AzureAdOptions> aadOptions, ILogger<KeyVaultService> logger)
+        public KeyVaultService(IOptionsSnapshot<Settings> settings, IOptionsSnapshot<AzureAdOptions> aadOptions, IHttpContextAccessor contextAccessor, ILogger<KeyVaultService> logger)
         {
             async Task<string> Authenticate(string authority, string resource, string scope)
             {
-                var context = new AuthenticationContext(authority);
-                var credential = new ClientCredential(aadOptions.Value.ClientId, aadOptions.Value.ClientSecret);
+                //var context = new AuthenticationContext(authority);
+                //var credential = new ClientCredential(aadOptions.Value.ClientId, aadOptions.Value.ClientSecret);
 
-                var result = await context.AcquireTokenAsync(resource, credential).ConfigureAwait(false);
-                if (result == null)
+                //var result = await context.AcquireTokenAsync(resource, credential).ConfigureAwait(false);
+                //if (result == null)
+                //{
+                //    throw new InvalidOperationException("Authentication to Azure failed.");
+                //}
+
+                var incomingToken = await contextAccessor.HttpContext.GetTokenAsync("access_token");
+
+                // construct OBO call
+                using (var client = new HttpClient())
                 {
-                    throw new InvalidOperationException("Authentication to Azure failed.");
+                    var content = new Dictionary<string, string>
+                    {
+                        { "client_id", aadOptions.Value.ClientId},
+                        { "client_secret", aadOptions.Value.ClientSecret},
+                        { "resource", "https://vault.azure.net"},
+                        { "assertion", incomingToken},
+                        { "requested_token_use", "on_behalf_of"},
+                        { "grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"}
+                    };
+                    var postReqest = new FormUrlEncodedContent(content);
+
+                    var result = await client.PostAsync($"{aadOptions.Value.AADInstance}{aadOptions.Value.TenantId}/oauth2/token", postReqest);
+
+                    var res = await result.Content.ReadAsStringAsync();
+                    result.EnsureSuccessStatusCode();
+
+                    var jObj = JObject.Parse(await result.Content.ReadAsStringAsync());
+                    validatedToken = jObj["access_token"].Value<string>();
+                    return validatedToken;
                 }
-                validatedToken = result.AccessToken;
-                return result.AccessToken;
             }
 
             client = new KeyVaultClient(Authenticate, new HttpClient());
