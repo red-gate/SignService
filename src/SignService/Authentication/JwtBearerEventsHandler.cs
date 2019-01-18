@@ -37,9 +37,7 @@ namespace SignService.Authentication
             // See if there's a UPN, and if so, use that object id
             var upn = identity.Claims.FirstOrDefault(c => c.Type == "upn")?.Value;
             if (upn != null)
-            {
-                var oid = identity.Claims.FirstOrDefault(c => c.Type == "oid")?.Value;
-
+            {             
                 // get the user
                 var authContext = new AuthenticationContext($"{azureOptions.Instance}{azureOptions.TenantId}", null); // No token caching
                 var credential = new ClientCredential(azureOptions.ClientId, azureOptions.ClientSecret);
@@ -68,6 +66,7 @@ namespace SignService.Authentication
                 else // get them from the graph directly
                 {
                     var result = await authContext.AcquireTokenAsync(settings.GraphId, credential, new UserAssertion(incomingToken));
+                    var oid = identity.Claims.FirstOrDefault(c => c.Type == "oid")?.Value;
 
                     var url = $"{adminOptions.GraphInstance}{azureOptions.TenantId}/users/{oid}?api-version=1.6";
 
@@ -95,6 +94,19 @@ namespace SignService.Authentication
                 // Wait for the KV task to finish
                 await kvTokenTask.ConfigureAwait(false);
                 kvService.InitializeCertificateInfo(user.TimestampUrl, user.KeyVaultUrl, user.KeyVaultCertificateName);
+            }
+            else
+            {
+                // Client credential flow
+
+                // get the user
+                var authContext = new AuthenticationContext($"{azureOptions.Instance}{azureOptions.TenantId}", null); // No token caching
+                var credential = new ClientCredential(azureOptions.ClientId, azureOptions.ClientSecret);
+
+                var incomingToken = ((JwtSecurityToken)context.SecurityToken).RawData;
+
+                // OBO flow
+                var result = await authContext.AcquireTokenAsync(settings.GraphId, credential, new UserAssertion(incomingToken));
             }
 
             if (!passed)
