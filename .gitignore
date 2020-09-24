@@ -256,3 +256,5 @@ ModelManifest.xml
 /src/SignService/Properties/PublishProfiles
 /src/InstallUtility/Properties/launchSettings.json
 /arm/ArmDeploy/azuredeploy.parameters.json
+/.tools/
+/.output/
